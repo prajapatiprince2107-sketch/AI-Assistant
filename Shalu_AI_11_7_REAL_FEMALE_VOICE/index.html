@@ -1,0 +1,86 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shalu AI 11.5 - 3D Anime</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080b1c;color:white;font-family:Segoe UI,Arial}
+#app{position:fixed;inset:0}canvas{display:block;width:100%;height:100%}
+.top{position:fixed;top:18px;left:0;right:0;text-align:center;z-index:5}h1{margin:0;font-size:36px}.ready{color:#52e6a0;font-weight:700;margin-top:8px}
+.badge{position:fixed;right:24px;top:22px;color:#b8c0df;z-index:5}
+#state{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:8;color:#8df0bd;font-weight:700}
+.panel{position:fixed;left:18px;right:18px;bottom:18px;z-index:10;padding:12px;background:rgba(12,17,40,.94);border:1px solid #293256;border-radius:16px;display:flex;gap:10px}
+select,input,button{height:44px;border-radius:10px;border:1px solid #303a64;background:#171d39;color:white;padding:0 14px;font-size:15px}
+input{flex:1}button{font-weight:700;cursor:pointer}#speak{background:#6b55ff;border-color:#6b55ff}
+</style>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"}}
+</script></head>
+<body>
+<div id="app"></div><div class="top"><h1>🤖 SHALU AI 11.5</h1><div class="ready">● Shalu is ready</div></div>
+<div class="badge">VRM 1.0 • Anime Avatar</div><div id="state">Loading Shalu…</div>
+<div class="panel"><select id="emotion"><option value="neutral">Neutral</option><option value="happy">Happy 😊</option><option value="sad">Sad 😢</option><option value="angry">Angry 😠</option><option value="surprised">Surprised 😮</option></select>
+<input id="text" placeholder="Type something Shalu should say…"><button id="speak">SPEAK 🔊</button><button id="stop">STOP</button></div>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {VRMLoaderPlugin} from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.min.js';
+
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x080b1c);
+const camera=new THREE.PerspectiveCamera(28,innerWidth/innerHeight,.05,100);
+const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.setSize(innerWidth,innerHeight); renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.getElementById('app').appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement); controls.enableDamping=true; controls.enablePan=false; controls.minDistance=1; controls.maxDistance=12;
+scene.add(new THREE.HemisphereLight(0xffffff,0x202040,2.2));
+const key=new THREE.DirectionalLight(0xffffff,2.8); key.position.set(2,4,4); scene.add(key);
+const rim=new THREE.DirectionalLight(0x9c8cff,2); rim.position.set(-3,2,-3); scene.add(rim);
+let vrm=null,speaking=false; const state=document.getElementById('state');
+
+function exp(n,v){if(!vrm?.expressionManager)return;try{vrm.expressionManager.setValue(n,v)}catch(e){}}
+function reset(){['happy','sad','angry','surprised','relaxed','blink','aa','ih','ou','ee','oh'].forEach(n=>exp(n,0))}
+function emotion(n){reset();if(n!=='neutral')exp(n,1)}
+document.getElementById('emotion').onchange=e=>emotion(e.target.value);
+
+const loader=new GLTFLoader(); loader.register(p=>new VRMLoaderPlugin(p));
+loader.load('./SHALU.vrm',g=>{
+ vrm=g.userData.vrm;
+ if(!vrm){state.textContent='VRM loaded, but VRM data was not found.';return}
+ const model=vrm.scene;scene.add(model);model.updateMatrixWorld(true);
+ const box=new THREE.Box3().setFromObject(model), center=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3()), height=Math.max(size.y,.1);
+ model.position.x-=center.x;model.position.y-=box.min.y;model.position.z-=center.z;model.rotation.y=Math.PI;
+ const targetY=height*.56;controls.target.set(0,targetY,0);const fov=camera.fov*Math.PI/180;
+ let distance=(height*.70)/Math.tan(fov/2);distance=Math.max(2.8,Math.min(distance,8.5));camera.position.set(0,targetY,distance);controls.update();
+ emotion('neutral');state.textContent='Shalu is ready ✨';
+ const clock=new THREE.Clock();
+ function animate(){requestAnimationFrame(animate);const dt=clock.getDelta(),t=clock.elapsedTime;vrm.update(dt);
+ model.rotation.z=Math.sin(t*.65)*.008;
+ const phase=t%4.8;exp('blink',phase<.16?Math.sin(phase/.16*Math.PI):0);
+ if(speaking){const ns=['aa','ih','ou','ee','oh'],i=Math.floor(t*3.5)%ns.length;ns.forEach((n,j)=>exp(n,j===i?.45+((Math.sin(t*18)+1)/2)*.4:0))}
+ else ['aa','ih','ou','ee','oh'].forEach(n=>exp(n,0));
+ controls.update();renderer.render(scene,camera)} animate();
+},undefined,e=>{console.error(e);state.textContent='Could not load SHALU.vrm — check CMD/server.'});
+
+let currentAudio=null;
+document.getElementById('speak').onclick=async()=>{
+  const text=document.getElementById('text').value.trim();
+  if(!text)return;
+  if(currentAudio){currentAudio.pause();currentAudio=null}
+  speaking=true;state.textContent='Shalu is speaking… 🎙️';
+  try{
+    const res=await fetch('/api/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});
+    if(!res.ok) throw new Error(await res.text());
+    const blob=await res.blob();
+    currentAudio=new Audio(URL.createObjectURL(blob));
+    currentAudio.onended=()=>{speaking=false;state.textContent='Shalu is ready ✨'};
+    currentAudio.onerror=()=>{speaking=false;state.textContent='Audio playback error'};
+    await currentAudio.play();
+  }catch(err){
+    console.error(err); speaking=false;
+    state.textContent='Add your ElevenLabs API key to ELEVENLABS_API_KEY.txt';
+  }
+};
+document.getElementById('stop').onclick=()=>{
+  if(currentAudio){currentAudio.pause();currentAudio.currentTime=0;currentAudio=null}
+  speaking=false;state.textContent='Shalu is ready ✨';
+};
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script></body></html>

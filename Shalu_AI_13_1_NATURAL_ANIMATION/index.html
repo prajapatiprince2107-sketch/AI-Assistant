@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SHALU AI 13.0 — Neural Voice</title>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#070914;color:#eef1ff;font-family:Segoe UI,Arial,sans-serif;overflow:hidden}
+#app{height:100vh;display:grid;grid-template-columns:1fr 380px}
+#stage{position:relative;min-width:0;background:radial-gradient(circle at 50% 35%,#1b2140 0,#090b17 52%,#04050b 100%)}
+canvas{width:100%;height:100%;display:block}
+#badge{position:absolute;left:20px;top:18px;padding:9px 13px;border:1px solid #39405e;border-radius:14px;background:#0b0e1bcc;backdrop-filter:blur(10px);font-size:12px;color:#bfc7ec}
+#panel{padding:22px;background:#0b0e19;border-left:1px solid #272d45;overflow:auto}
+h1{margin:0;font-size:25px} .sub{color:#9da7ca;margin:5px 0 20px;font-size:13px}
+.card{background:#111526;border:1px solid #252c48;border-radius:16px;padding:14px;margin-bottom:13px}
+label{display:block;font-size:12px;color:#aab4d7;margin-bottom:7px}
+select,input,textarea,button{font:inherit}
+select,textarea{width:100%;background:#090c16;color:#eef1ff;border:1px solid #343b59;border-radius:11px;padding:10px}
+textarea{height:115px;resize:vertical}
+.row{display:flex;gap:8px}.row>*{flex:1}
+button{border:0;border-radius:11px;padding:11px 12px;cursor:pointer;background:#252c49;color:white;font-weight:700}
+button.primary{background:#6556d9} button.stop{background:#43263a}
+button:disabled{opacity:.55;cursor:not-allowed}
+#status{font-size:12px;color:#aab4d7;line-height:1.5}.ok{color:#9be7b1}.warn{color:#ffd28a}
+#chat{height:155px;overflow:auto;font-size:12px;line-height:1.5;background:#080b14;border-radius:11px;padding:10px}
+.msg{margin-bottom:9px}.you{color:#aeb9ff}.shalu{color:#b9f1ce}
+.small{font-size:11px;color:#7f89aa}
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="stage">
+    <div id="badge">3D VRM • Local Neural TTS • No API key</div>
+    <canvas id="c"></canvas>
+  </section>
+  <aside id="panel">
+    <h1>SHALU AI 13.0</h1>
+    <div class="sub">Natural local neural voice 🎙️ • Emotional conversation ✨</div>
+
+    <div class="card">
+      <label>Conversation style</label>
+      <select id="style">
+        <option value="natural">Natural & Emotional</option>
+        <option value="soft">Soft & Gentle</option>
+        <option value="cheerful">Cheerful</option>
+        <option value="calm">Calm</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <label>Emotion</label>
+      <select id="emotion">
+        <option value="auto">Auto from text</option>
+        <option value="neutral">Neutral</option>
+        <option value="happy">Happy</option>
+        <option value="relaxed">Relaxed</option>
+        <option value="surprised">Surprised</option>
+        <option value="sad">Sad</option>
+        <option value="angry">Angry</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <label>Say something to Shalu</label>
+      <textarea id="text">Hey Prince! ✨ It's really nice to talk with you. How are you doing today?</textarea>
+      <div class="row" style="margin-top:9px">
+        <button class="primary" id="speak">SPEAK</button>
+        <button class="stop" id="stop">STOP</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Conversation</label>
+      <div id="chat"></div>
+    </div>
+
+    <div class="card">
+      <div id="status" class="ok">Ready. Local Piper neural voice is connected to the 3D Shalu model.</div>
+      <div class="small" style="margin-top:8px">
+        The voice is generated locally on your PC. The emotional feeling comes from
+        natural pacing + expression changes; it does not clone the reference speaker.
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.176.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.176.0/examples/jsm/",
+  "@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.1/lib/three-vrm.module.js"
+}}
+</script>
+<script type="module">
+import * as THREE from "three";
+import {OrbitControls} from "three/addons/controls/OrbitControls.js";
+import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
+import {VRMLoaderPlugin, VRMUtils} from "@pixiv/three-vrm";
+const canvas=document.getElementById("c"), status=document.getElementById("status");
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(28,1,.1,100); camera.position.set(0,.12,2.8);
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true}); renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.outputColorSpace=THREE.SRGBColorSpace;
+const controls=new OrbitControls(camera,renderer.domElement); controls.target.set(0,.08,0); controls.enableDamping=true; controls.dampingFactor=.07; controls.minDistance=1.65; controls.maxDistance=4.2; controls.maxPolarAngle=Math.PI*.57; controls.minPolarAngle=Math.PI*.27;
+scene.add(new THREE.HemisphereLight(0xd8ddff,0x101322,2.5));
+const key=new THREE.DirectionalLight(0xffffff,2.8); key.position.set(2.5,3.5,4); scene.add(key);
+const fill=new THREE.DirectionalLight(0x91a7ff,1.0); fill.position.set(-3,1.5,2); scene.add(fill);
+let vrm=null,speaking=false,audio=null,audioCtx=null,analyser=null,sourceNode=null,rafLip=null,blinkAt=performance.now()+2200,blinkEnd=0,currentEmotion="neutral",emotionUntil=0;
+function resize(){const w=Math.max(1,canvas.clientWidth),h=Math.max(1,canvas.clientHeight);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false)} addEventListener("resize",resize);resize();
+const loader=new GLTFLoader(); loader.register(p=>new VRMLoaderPlugin(p));
+loader.load("SHALU.vrm",g=>{vrm=g.userData.vrm;VRMUtils.removeUnnecessaryJoints(g.scene);scene.add(vrm.scene);vrm.scene.rotation.y=Math.PI;const box=new THREE.Box3().setFromObject(vrm.scene),size=box.getSize(new THREE.Vector3()),center=box.getCenter(new THREE.Vector3());vrm.scene.position.y-=center.y;vrm.scene.scale.setScalar(1.72/size.y);status.textContent="Ready — Shalu is loaded. 🎙️✨"},undefined,e=>status.textContent="VRM load error: "+e);
+function setExpr(n,v){if(!vrm?.expressionManager)return;try{vrm.expressionManager.setValue(n,Math.max(0,Math.min(1,v)))}catch{}}
+function clearMouth(){["aa","ih","ou","ee","oh"].forEach(n=>setExpr(n,0))}
+function setEmotion(e){currentEmotion=e;["happy","sad","angry","surprised","relaxed"].forEach(n=>setExpr(n,0));if(e!=="neutral")setExpr(e,1)}
+function detectEmotion(t){const x=t.toLowerCase();if(/[😮😲]|wow|really|amazing|surpris/.test(x))return"surprised";if(/[😂😊😁❤️✨]|happy|great|awesome|yay|glad|thank|nice|love/.test(x))return"happy";if(/[😢😭]|sad|sorry|miss|unfortunately/.test(x))return"sad";if(/angry|mad|annoyed|hate/.test(x))return"angry";if(/calm|relaxed|peaceful/.test(x))return"relaxed";return"neutral"}
+function splitSentences(t){return t.replace(/\s+/g," ").trim().match(/[^.!?]+[.!?]+|[^.!?]+$/g)||[t]}
+function addChat(who,text){const d=document.createElement("div");d.className="msg "+(who==="Shalu"?"shalu":"you");d.textContent=who+": "+text;document.getElementById("chat").appendChild(d);document.getElementById("chat").scrollTop=999999}
+async function setupAnalyser(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==="suspended")await audioCtx.resume();if(sourceNode)try{sourceNode.disconnect()}catch{};analyser=audioCtx.createAnalyser();analyser.fftSize=512;analyser.smoothingTimeConstant=.72;sourceNode=audioCtx.createMediaElementSource(audio);sourceNode.connect(analyser);analyser.connect(audioCtx.destination)}
+function animateMouth(){if(!analyser||!speaking)return;const td=new Uint8Array(analyser.fftSize),fd=new Uint8Array(analyser.frequencyBinCount);analyser.getByteTimeDomainData(td);analyser.getByteFrequencyData(fd);let sum=0;for(const v of td){const z=(v-128)/128;sum+=z*z}const vol=Math.min(1,Math.max(0,(Math.sqrt(sum/td.length)-.012)*5.8));let low=0,mid=0,high=0;for(let i=1;i<fd.length;i++){const v=fd[i];if(i<18)low+=v;else if(i<60)mid+=v;else high+=v}const total=low+mid+high+1,l=low/total,m=mid/total,h=high/total;clearMouth();setExpr("aa",vol*(.45+.45*l));setExpr("ou",vol*(.12+.75*l));setExpr("ee",vol*(.10+.78*h));setExpr("ih",vol*(.18+.55*m));setExpr("oh",vol*(.12+.62*(l+m)));rafLip=requestAnimationFrame(animateMouth)}
+function blink(t){if(!vrm||speaking)return;if(t>=blinkAt&&blinkEnd===0){blinkEnd=t+135;setExpr("blink",1)}if(blinkEnd&&t>=blinkEnd){setExpr("blink",0);blinkEnd=0;blinkAt=t+2400+Math.random()*3200}}
+async function speakText(text){if(!text)return;stopAudio();speaking=true;document.getElementById("speak").disabled=true;const chosen=document.getElementById("emotion").value,style=document.getElementById("style").value,emotion=chosen==="auto"?detectEmotion(text):chosen;setEmotion(emotion);emotionUntil=performance.now()+Math.max(2500,text.length*65);addChat("You",text);status.textContent="Generating neural voice… 🎙️";try{await setupAnalyser()}catch{};for(const part of splitSentences(text)){if(!speaking)break;let s=part.trim();if(!s)continue;if(style==="cheerful"&&!/[!?]$/.test(s))s+="!";if(style==="soft")s=s.replace(/!/g,".");try{const res=await fetch("/speak",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:s,emotion})});if(!res.ok)throw Error(await res.text());const blob=await res.blob(),url=URL.createObjectURL(blob);audio=new Audio(url);audio.preload="auto";await new Promise(resolve=>{let done=false;const finish=()=>{if(done)return;done=true;if(rafLip){cancelAnimationFrame(rafLip);rafLip=null}clearMouth();URL.revokeObjectURL(url);resolve()};audio.onplay=()=>{status.textContent=`Speaking • ${emotion} ${emotion==="happy"?"😊":emotion==="surprised"?"😮":emotion==="sad"?"😔":emotion==="angry"?"😤":emotion==="relaxed"?"😌":"🙂"}`;animateMouth()};audio.onended=finish;audio.onerror=finish;audio.play().catch(finish)});}catch(e){status.textContent="Voice error: "+e.message;break}await new Promise(r=>setTimeout(r,120))}speaking=false;if(rafLip){cancelAnimationFrame(rafLip);rafLip=null}clearMouth();document.getElementById("speak").disabled=false;status.textContent="Ready — Shalu is listening. 💜"}
+function stopAudio(){speaking=false;if(audio){try{audio.pause();audio.currentTime=0}catch{}audio=null}if(rafLip){cancelAnimationFrame(rafLip);rafLip=null}clearMouth();document.getElementById("speak").disabled=false}
+document.getElementById("speak").onclick=()=>speakText(document.getElementById("text").value);document.getElementById("stop").onclick=stopAudio;document.getElementById("emotion").onchange=e=>{if(e.target.value!=="auto")setEmotion(e.target.value)};
+function animate(t){requestAnimationFrame(animate);if(vrm){vrm.update(.016);if(!speaking){vrm.scene.rotation.z=Math.sin(t*.00105)*.010;vrm.scene.rotation.x=Math.sin(t*.00083)*.004;vrm.scene.position.x=Math.sin(t*.00063)*.006;blink(t)}else{vrm.scene.rotation.z=Math.sin(t*.0023)*.006;vrm.scene.rotation.x=Math.sin(t*.0016)*.003;vrm.scene.position.x=Math.sin(t*.0012)*.003}const head=vrm.humanoid?.getNormalizedBoneNode?.("head"),neck=vrm.humanoid?.getNormalizedBoneNode?.("neck");if(head){head.rotation.y=Math.sin(t*.00072)*.018;head.rotation.z=Math.sin(t*.0011)*.008}if(neck){neck.rotation.z=Math.sin(t*.0009)*.004}if(emotionUntil&&t>emotionUntil){setEmotion("neutral");emotionUntil=0}}controls.update();renderer.render(scene,camera)}animate(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shalu AI 11.4 - 3D Anime</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#080b1c;color:#fff;font-family:Segoe UI,Arial,sans-serif}
+#app{position:fixed;inset:0}canvas{display:block;width:100%;height:100%}
+.top{position:fixed;top:18px;left:0;right:0;text-align:center;z-index:5;pointer-events:none}
+h1{margin:0;font-size:36px}.ready{margin-top:8px;color:#52e6a0;font-weight:700}
+.badge{position:fixed;right:24px;top:22px;color:#b8c0df;z-index:5}
+.panel{position:fixed;left:18px;right:18px;bottom:18px;z-index:10;padding:12px;background:rgba(12,17,40,.92);border:1px solid #293256;border-radius:16px;display:flex;gap:10px;align-items:center}
+select,input,button{height:44px;border-radius:10px;border:1px solid #303a64;background:#171d39;color:#fff;padding:0 14px;font-size:15px}
+input{flex:1;min-width:120px}button{font-weight:700;cursor:pointer}button:hover{filter:brightness(1.12)}
+#speak{background:#6b55ff;border-color:#6b55ff}#stop{background:#333b58}
+#state{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);z-index:8;color:#8df0bd;font-weight:700;text-shadow:0 2px 8px #000}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="top"><h1>🤖 SHALU AI 11.4</h1><div class="ready">● Shalu is ready</div></div>
+<div class="badge">VRM 1.0 • Anime Avatar</div>
+<div id="state">Loading Shalu…</div>
+<div class="panel">
+<select id="emotion">
+<option value="neutral">Neutral</option><option value="happy">Happy 😊</option>
+<option value="sad">Sad 😢</option><option value="angry">Angry 😠</option>
+<option value="surprised">Surprised 😮</option>
+</select>
+<input id="text" placeholder="Type something Shalu should say…">
+<button id="speak">SPEAK 🔊</button><button id="stop">STOP</button>
+</div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+import {GLTFLoader} from 'https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/loaders/GLTFLoader.js';
+import {VRMLoaderPlugin} from 'https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.2/lib/three-vrm.module.min.js';
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x080b1c);
+const camera=new THREE.PerspectiveCamera(28,innerWidth/innerHeight,.05,100);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+document.getElementById('app').appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.enablePan=false; controls.minDistance=1; controls.maxDistance=12;
+controls.target.set(0,1.25,0);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x202040,2.2));
+const key=new THREE.DirectionalLight(0xffffff,2.8); key.position.set(2,4,4); scene.add(key);
+const rim=new THREE.DirectionalLight(0x9c8cff,2); rim.position.set(-3,2,-3); scene.add(rim);
+
+let vrm=null, mixer=null, speaking=false, speakTimer=null, currentEmotion='neutral';
+const state=document.getElementById('state');
+
+function setExpression(name,value){
+  if(!vrm?.expressionManager) return;
+  try { vrm.expressionManager.setValue(name,value); } catch(e){}
+}
+function resetExpressions(){
+  ['happy','sad','angry','surprised','relaxed','blink','aa','ih','ou','ee','oh'].forEach(n=>setExpression(n,0));
+}
+function emotion(name){
+  currentEmotion=name; resetExpressions();
+  if(name!=='neutral') setExpression(name,1);
+}
+document.getElementById('emotion').onchange=e=>emotion(e.target.value);
+
+const loader=new GLTFLoader();
+loader.register(parser=>new VRMLoaderPlugin(parser));
+
+loader.load('./SHALU.vrm',gltf=>{
+  vrm=gltf.userData.vrm;
+  const model=vrm.scene;
+  scene.add(model);
+
+  // Fix the framing from 11.3: normalize the model around its actual bounds.
+  model.updateMatrixWorld(true);
+  let box=new THREE.Box3().setFromObject(model);
+  const center=box.getCenter(new THREE.Vector3());
+  const size=box.getSize(new THREE.Vector3());
+  const height=Math.max(size.y,0.1);
+
+  model.position.x-=center.x;
+  model.position.y-=box.min.y;
+  model.position.z-=center.z;
+
+  // Face the camera and keep the whole avatar comfortably visible.
+  model.rotation.y=Math.PI;
+  const targetY=height*0.56;
+  controls.target.set(0,targetY,0);
+
+  // Camera distance based on height, with safe limits.
+  const fov=camera.fov*Math.PI/180;
+  let distance=(height*0.72)/Math.tan(fov/2);
+  distance=Math.max(2.6,Math.min(distance,8.5));
+  camera.position.set(0,targetY,distance);
+  controls.update();
+
+  state.textContent='Shalu is ready ✨';
+  emotion('neutral');
+
+  // Start a gentle idle animation.
+  const clock=new THREE.Clock();
+  function animate(){
+    requestAnimationFrame(animate);
+    const dt=clock.getDelta();
+    if(vrm){
+      vrm.update(dt);
+      const t=clock.elapsedTime;
+      model.position.y += Math.sin(t*1.1)*0.0015;
+      // natural blink
+      const phase=t%4.7;
+      const blink=(phase<0.16)?Math.sin((phase/0.16)*Math.PI):0;
+      setExpression('blink',blink);
+      if(speaking){
+        const mouth=(Math.sin(t*18)+1)/2;
+        const names=['aa','ih','ou','ee','oh'];
+        names.forEach(n=>setExpression(n,0));
+        setExpression(names[Math.floor((t*3)%names.length)],0.45+mouth*0.4);
+      } else {
+        ['aa','ih','ou','ee','oh'].forEach(n=>setExpression(n,0));
+      }
+    }
+    controls.update(); renderer.render(scene,camera);
+  }
+  animate();
+},xhr=>{},err=>{
+  console.error(err); state.textContent='Could not load SHALU.vrm — open CMD and send screenshot.';
+});
+
+document.getElementById('speak').onclick=()=>{
+  const text=document.getElementById('text').value.trim();
+  if(!text)return;
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang=/[\u0900-\u097F]/.test(text)?'hi-IN':/[\u0A80-\u0AFF]/.test(text)?'gu-IN':'en-IN';
+  u.rate=.96; u.pitch=1.08;
+  const voices=speechSynthesis.getVoices();
+  const v=voices.find(x=>x.lang===u.lang && /female|zira|heera|google/i.test(x.name));
+  if(v)u.voice=v;
+  speaking=true; state.textContent='Shalu is speaking… 🎙️';
+  u.onend=()=>{speaking=false;state.textContent='Shalu is ready ✨'};
+  u.onerror=()=>{speaking=false;state.textContent='Shalu is ready ✨'};
+  speechSynthesis.speak(u);
+};
+document.getElementById('stop').onclick=()=>{
+  speechSynthesis.cancel(); speaking=false; state.textContent='Shalu is ready ✨';
+};
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>

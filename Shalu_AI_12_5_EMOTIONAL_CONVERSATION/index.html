@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SHALU AI 12.5 — Emotional Conversation</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#070912;color:#f4f5fa;font-family:Segoe UI,Arial,sans-serif;overflow:hidden}
+#app{height:100vh;display:grid;grid-template-columns:1fr 380px}
+#stage{position:relative;min-width:0}
+canvas{display:block;width:100%;height:100%}
+#status{position:absolute;top:16px;left:16px;padding:9px 13px;border-radius:12px;background:#111625df;border:1px solid #30374a;font-size:13px}
+#panel{background:#0d111b;border-left:1px solid #262d3d;padding:20px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+h1{font-size:25px;margin:0}.sub{font-size:13px;color:#aab2c5;line-height:1.4}
+label{font-size:12px;color:#adb6c9;margin-top:3px}
+select,textarea,button{width:100%;border:1px solid #30374a;background:#151a28;color:#f4f5fa;border-radius:11px;padding:11px;font:inherit}
+textarea{height:120px;resize:vertical}
+button{cursor:pointer;font-weight:700}
+#speak{background:#6e4cff;border-color:#6e4cff}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.note{font-size:11px;color:#858fa4;line-height:1.5}
+.tag{display:inline-block;font-size:10px;padding:4px 7px;border-radius:999px;background:#171e2e;color:#aeb8cc;margin-right:4px}
+@media(max-width:850px){#app{grid-template-columns:1fr}#panel{position:absolute;right:10px;top:10px;width:340px;max-height:calc(100vh - 20px);border:1px solid #30374a;border-radius:16px}}
+</style>
+</head>
+<body>
+<div id="app">
+<section id="stage"><div id="status">Loading Shalu…</div></section>
+<aside id="panel">
+<h1>SHALU AI 12.5 🎀</h1>
+<div class="sub">Emotional conversation • Natural anime-assistant style</div>
+<div><span class="tag">AUTO EMOTION</span><span class="tag">AUTO PAUSES</span><span class="tag">NO API KEY</span></div>
+
+<label>Voice</label>
+<select id="voice"></select>
+
+<label>Conversation style</label>
+<select id="mode">
+  <option value="emotional" selected>Emotional / Natural</option>
+  <option value="soft">Soft & Gentle</option>
+  <option value="cheerful">Cheerful</option>
+  <option value="calm">Calm</option>
+</select>
+
+<label>Emotion</label>
+<select id="emotion">
+  <option value="auto" selected>Auto from conversation</option>
+  <option value="neutral">Neutral</option>
+  <option value="happy">Happy</option>
+  <option value="relaxed">Relaxed</option>
+  <option value="surprised">Surprised</option>
+  <option value="sad">Sad</option>
+  <option value="angry">Angry</option>
+</select>
+
+<label>Text</label>
+<textarea id="text">Hi Prince! 😊 I’m Shalu. I’m really happy to talk with you today. What shall we do?</textarea>
+
+<div class="row">
+<button id="test">TEST VOICE 🔊</button>
+<button id="stop">STOP</button>
+</div>
+<button id="speak">SPEAK 🎙️</button>
+
+<div class="note">
+Tip: if the list contains a Microsoft female voice marked <b>Online (Natural)</b>,
+choose it. The app also has an Auto Natural option that ranks likely natural
+female voices first.
+</div>
+</aside>
+</div>
+
+<script type="importmap">
+{"imports":{
+"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+"@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.0/lib/three-vrm.module.js"
+}}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import {VRMLoaderPlugin,VRMUtils} from "@pixiv/three-vrm";
+import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
+
+const stage=document.getElementById("stage"), status=document.getElementById("status");
+const voiceEl=document.getElementById("voice"), modeEl=document.getElementById("mode");
+const emoEl=document.getElementById("emotion"), textEl=document.getElementById("text");
+
+let vrm=null, speaking=false, blinkClock=0, mouthClock=0, utterToken=0;
+
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x070912);
+const camera=new THREE.PerspectiveCamera(28,1,.1,100);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2)); renderer.outputColorSpace=THREE.SRGBColorSpace;
+stage.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x303344,2.4));
+const l1=new THREE.DirectionalLight(0xffffff,2.2); l1.position.set(1.6,2.7,2); scene.add(l1);
+const l2=new THREE.DirectionalLight(0xb9c6ff,1.0); l2.position.set(-2,1,1); scene.add(l2);
+
+function resize(){
+ const w=stage.clientWidth,h=stage.clientHeight;
+ renderer.setSize(w,h); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+addEventListener("resize",resize); resize();
+
+const loader=new GLTFLoader(); loader.register(p=>new VRMLoaderPlugin(p));
+
+function setEmotion(n){
+ if(!vrm?.expressionManager)return;
+ for(const x of ["happy","sad","angry","surprised","relaxed","neutral"])
+   vrm.expressionManager.setValue(x,x===n?(n==="neutral"?1:.75):0);
+ vrm.expressionManager.update();
+}
+
+function mouth(v){
+ if(!vrm?.expressionManager)return;
+ const ns=["aa","ih","ou","ee","oh"];
+ const active=ns[Math.floor((performance.now()/70)%ns.length)];
+ for(const n of ns) vrm.expressionManager.setValue(n,0);
+ if(v>0) vrm.expressionManager.setValue(active,Math.min(v,.82));
+ vrm.expressionManager.update();
+}
+function blink(){
+ if(!vrm?.expressionManager)return;
+ vrm.expressionManager.setValue("blink",1); vrm.expressionManager.update();
+ setTimeout(()=>{if(vrm?.expressionManager){vrm.expressionManager.setValue("blink",0);vrm.expressionManager.update()}},125);
+}
+
+loader.load("./SHALU.vrm",g=>{
+ vrm=g.userData.vrm; VRMUtils.removeUnnecessaryVertices(g.scene); scene.add(vrm.scene);
+ const b=new THREE.Box3().setFromObject(vrm.scene), c=b.getCenter(new THREE.Vector3()), s=b.getSize(new THREE.Vector3());
+ vrm.scene.position.x-=c.x; vrm.scene.position.y-=b.min.y; vrm.scene.position.z-=c.z;
+ camera.position.set(0,Math.max(1.15,s.y*.55),Math.max(2.65,s.y*1.18));
+ camera.lookAt(0,Math.max(.9,s.y*.52),0);
+ setEmotion("neutral"); status.textContent="Shalu is ready";
+},undefined,e=>{console.error(e);status.textContent="Could not load SHALU.vrm"});
+
+function score(v){
+ const n=(v.name+" "+v.voiceURI).toLowerCase(); let s=0;
+ if(/online/.test(n))s+=120;
+ if(/natural/.test(n))s+=100;
+ if(/microsoft/.test(n))s+=60;
+ if(/aria|jenny|sonia|zira|samantha|ava|emma|hazel/.test(n))s+=45;
+ if(/^en(-|_)/.test(v.lang))s+=30;
+ if(!v.localService)s+=20;
+ if(/male|david|mark|guy|roger|brian|eric|liam/.test(n))s-=150;
+ if(/google uk english female/.test(n))s-=15;
+ return s;
+}
+function fillVoices(){
+ const all=speechSynthesis.getVoices().filter(v=>/^en(-|_)/i.test(v.lang));
+ all.sort((a,b)=>score(b)-score(a));
+ voiceEl.innerHTML="";
+ const auto=document.createElement("option"); auto.value="__AUTO__"; auto.textContent="✨ Auto Natural (recommended)"; voiceEl.appendChild(auto);
+ all.forEach(v=>{const o=document.createElement("option");o.value=v.voiceURI;o.textContent=`${v.name} — ${v.lang}${v.localService?"":" • Online"}`;voiceEl.appendChild(o)});
+}
+speechSynthesis.onvoiceschanged=fillVoices; fillVoices();
+
+function chosen(){
+ const vs=speechSynthesis.getVoices().filter(v=>/^en(-|_)/i.test(v.lang));
+ vs.sort((a,b)=>score(b)-score(a));
+ if(voiceEl.value==="__AUTO__")return vs[0];
+ return vs.find(v=>v.voiceURI===voiceEl.value)||vs[0];
+}
+
+function detectEmotion(t){
+ const x=t.toLowerCase();
+ if(/[😄😁😊😂❤️💕]|love|happy|great|awesome|yay|glad|thank/.test(x))return "happy";
+ if(/[😮😲]|wow|really|amazing|surprise|what\!/.test(x))return "surprised";
+ if(/[😢😭]|sad|sorry|miss|unfortunately/.test(x))return "sad";
+ if(/angry|mad|annoyed|hate/.test(x))return "angry";
+ if(/calm|relaxed|peaceful/.test(x))return "relaxed";
+ return "neutral";
+}
+function emotionFor(t){
+ const chosen=emoEl.value;
+ return chosen==="auto"?detectEmotion(t):chosen;
+}
+
+function chunks(text){
+ return text.replace(/\\s+/g," ").trim().match(/[^.!?]+[.!?]+|[^.!?]+$/g)||[];
+}
+
+function styleSettings(){
+ const m=modeEl.value;
+ if(m==="soft")return {rate:.88,pitch:1.10};
+ if(m==="cheerful")return {rate:.98,pitch:1.15};
+ if(m==="calm")return {rate:.84,pitch:1.05};
+ return {rate:.91,pitch:1.10};
+}
+
+function speakAll(text){
+ speechSynthesis.cancel(); const token=++utterToken;
+ const parts=chunks(text); if(!parts.length)return;
+ speaking=true;
+ let i=0;
+
+ function next(){
+  if(token!==utterToken || i>=parts.length){speaking=false;mouth(0);status.textContent="Shalu is ready";return}
+  const part=parts[i++].trim(); if(!part){next();return}
+  const e=emotionFor(part); setEmotion(e);
+  const u=new SpeechSynthesisUtterance(part), v=chosen(), base=styleSettings();
+  if(v){u.voice=v;u.lang=v.lang}
+  // Natural conversational micro-variation; kept subtle so it doesn't sound artificial.
+  const jitter=((i%3)-1)*.018;
+  u.rate=Math.max(.78,Math.min(1.08,base.rate+jitter));
+  u.pitch=Math.max(.96,Math.min(1.20,base.pitch+(e==="happy"?.025:e==="sad"?-.025:e==="surprised"?.05:0)));
+  u.volume=1;
+  status.textContent=`Shalu • ${e}`;
+  u.onstart=()=>{mouth(.25)};
+  u.onboundary=()=>{mouth(.48); mouthClock=0};
+  u.onend=()=>{mouth(0); setTimeout(next, e==="surprised"?90:140)};
+  u.onerror=()=>{mouth(0);next()};
+  speechSynthesis.speak(u);
+ }
+ next();
+}
+
+document.getElementById("speak").onclick=()=>{const t=textEl.value.trim();if(t)speakAll(t)};
+document.getElementById("test").onclick=()=>speakAll("Hi Prince! 😊 I’m Shalu. It’s really nice to talk with you today!");
+document.getElementById("stop").onclick=()=>{utterToken++;speechSynthesis.cancel();speaking=false;mouth(0);setEmotion("neutral");status.textContent="Shalu is ready"};
+
+function animate(t){
+ requestAnimationFrame(animate);
+ if(vrm){
+  vrm.update(.016);
+  vrm.scene.rotation.y=Math.sin(t*.00055)*.025;
+  if(speaking){
+   mouthClock+=.016;
+   if(mouthClock>.12){mouth(.13+.16*(.5+.5*Math.sin(t*.015)));mouthClock=0}
+  }
+  blinkClock+=.016;
+  if(blinkClock>3.6+Math.random()*3.6){blink();blinkClock=0}
+ }
+ renderer.render(scene,camera);
+}
+animate(0);
+</script>
+</body>
+</html>
