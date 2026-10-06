@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.wav
+*.mp3
+memory.json
+conversation_history.json
+voice_input.wav

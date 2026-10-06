@@ -1,0 +1,9 @@
+ollama
+edge-tts
+SpeechRecognition
+sounddevice
+numpy
+scipy
+psutil
+tavily-python
+Pillow
